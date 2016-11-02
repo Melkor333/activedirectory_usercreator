@@ -1,42 +1,26 @@
-﻿function dialog($msg){
-$wshell = New-Object -ComObject Wscript.Shell
-
-return $wshell.Popup($msg,0,"warning",0x1)
-}
-
-$x = "crap"
-
-$y = ? { Test-Path $x -Or dialog "rly" -eq 1 }
-
-echo $y
-
-
-# import the xmlfile with the user names
-function import ($file) {
-
-    return $listofusers
-}
-
-
-# create a log file with this pattern -> NOT as xml. its like this:
+﻿# create a log file with this pattern -> NOT as xml. its like this:
 # ERROR: Something went wrong
 # INFO: Something happened
-# ...
-function log ($list, $file) {
-    # for each item in $list, create newline and insert item
-    # write list to file.
+function log ($text) {
+    $text = (get-date).ToShortTimeString() + " - " + $text
+    Add-Content $log.Text $text
 }
 
-# export the list of all created users together with their password as xml file
-function export ($list, $file) {
+#function dialog($msg){
+#$wshell = New-Object -ComObject Wscript.Shell
+#return $wshell.Popup($msg,0,"warning",0x1)
+#}
 
-  
+# import the xmlfile with the user names
+function importusers ($file) {
+    try{
+        return [xml]$xml = Get-Content test.xml
+    } catch {
+        log "EROR: File couldn't be imported"
+    }
 }
 
 
-function createpw {
-    return -join ((65..90) + (97..122) | Get-Random -Count 10 | % {[char]$_})
-}
 
 
 #Generated Form Function
@@ -80,11 +64,6 @@ $InitialFormWindowState = New-Object System.Windows.Forms.FormWindowState
 #Generated Event Script Blocks
 #----------------------------------------------
 #Provide Custom Code for events specified in PrimalForms.
-$pwdfile_button_OnClick= 
-{
-#TODO: Place custom script here
-
-}
 
 $log_button_OnClick= 
 {
@@ -100,7 +79,49 @@ $log_button_OnClick=
 $run_OnClick= 
 {
 #TODO: Place custom script here
+    log "INFO: Start creation of Users"
+    
 
+    try {
+    import-module activedirectory
+    log "INFO: Imported ActiveDirectory Module"
+    } catch {
+    log "ERROR: ActiveDirectory-Module missing, try installing and enabling the RSAT-Tools!"
+    } 
+    try {
+        $xml = importusers($userlist.text)
+        #$pwd = ConvertTo-SecureString -String 'Admin123' -AsPlainText -force
+        #$cred = New-Object -TypeName System.Management.Automation.PSCredential ('SAM\Administrator', $pwd)
+        $cred = Get-Credential
+        #$root = "ou=users,ou=meeting,dc=sam,dc=local"
+        new-psdrive -Name AD -psprovider ActiveDirectory -Root "" -Server $server.Text -Cred $cred
+        cd AD:
+        log "INFO: Connection to Server could be etablished!"
+        try {
+
+            $xml.users.user | % {
+                try {
+                    write-host $_.name $_.pw
+                    $pw = ConvertTo-SecureString -String $_.pw -AsPlainText -Force
+                    New-ADUser -Name $_.name -SamAccountName $_.name -Path "ou=users,ou=meeting,dc=sam,dc=local" -Title "autocreateduser" -AccountExpirationDate $dateTimePicker1.Value -AccountPassword $pw -enabled $true
+                } catch [Exception] { write-host $_.Exception.Message }
+            }
+            log "INFO: Created Users"
+        } catch [Exception] {
+            log "ERROR: The users couldn't be Created properly! It could be that the Security Settings for Passwords are too strong, to disable complexity checks, follow this page:
+    https://www.interactivewebs.com/blog/index.php/server-tips/windows-2012-turn-off-password-complexity/"
+            log $_.Exception.Message
+        }
+    } catch {
+        log "ERROR: Couldn't connect to Active Directory. Check the credentials and the Server address please"
+    }
+    try {    
+        cd C:
+        Remove-PSDrive AD
+        log "INFO: Disconnected ActiveDirectory"
+    } catch {
+        log "ERROR: Couldn't disconnect for some Reason. Maybe this is because there is no drice 'C:"
+    }      
 }
 
 $handler_form1_Load= 
@@ -117,12 +138,14 @@ $userlist_button_OnClick=
     $OpenFileDialog.initialDirectory = $userlist.Text
     $OpenFileDialog.ShowDialog() | Out-Null
     $userlist.Text = $OpenFileDialog.FileName
+
 }
 
 $rem_OnClick= 
 {
 #TODO: Place custom script here
-
+    Write-Host $dateTimePicker1.Value
+    log "INFO: Start removing Users"
 }
 
 $handler_label9_Click= 
@@ -188,23 +211,23 @@ $dateTimePicker1.TabIndex = 19
 $form1.Controls.Add($dateTimePicker1)
 
 
-$pwdfile_button.DataBindings.DefaultDataSourceUpdateMode = 0
+#$pwdfile_button.DataBindings.DefaultDataSourceUpdateMode = 0
 
-$System_Drawing_Point = New-Object System.Drawing.Point
-$System_Drawing_Point.X = 310
-$System_Drawing_Point.Y = 245
-$pwdfile_button.Location = $System_Drawing_Point
-$pwdfile_button.Name = "pwdfile_button"
-$System_Drawing_Size = New-Object System.Drawing.Size
-$System_Drawing_Size.Height = 23
-$System_Drawing_Size.Width = 126
-$pwdfile_button.Size = $System_Drawing_Size
-$pwdfile_button.TabIndex = 18
-$pwdfile_button.Text = "open..."
-$pwdfile_button.UseVisualStyleBackColor = $True
-$pwdfile_button.add_Click($pwdfile_button_OnClick)
+#$System_Drawing_Point = New-Object System.Drawing.Point
+#$System_Drawing_Point.X = 310
+#$System_Drawing_Point.Y = 245
+#$pwdfile_button.Location = $System_Drawing_Point
+#$pwdfile_button.Name = "pwdfile_button"
+#$System_Drawing_Size = New-Object System.Drawing.Size
+#$System_Drawing_Size.Height = 23
+#$System_Drawing_Size.Width = 126
+#$pwdfile_button.Size = $System_Drawing_Size
+#$pwdfile_button.TabIndex = 18
+#$pwdfile_button.Text = "open..."
+#$pwdfile_button.UseVisualStyleBackColor = $True
+#$pwdfile_button.add_Click($pwdfile_button_OnClick)
 
-$form1.Controls.Add($pwdfile_button)
+#$form1.Controls.Add($pwdfile_button)
 
 
 $log_button.DataBindings.DefaultDataSourceUpdateMode = 0
@@ -263,36 +286,36 @@ $run.add_Click($run_OnClick)
 
 $form1.Controls.Add($run)
 
-$pwdfile.DataBindings.DefaultDataSourceUpdateMode = 0
-$System_Drawing_Point = New-Object System.Drawing.Point
-$System_Drawing_Point.X = 168
-$System_Drawing_Point.Y = 245
-$pwdfile.Location = $System_Drawing_Point
-$pwdfile.Name = "pwdfile"
-$System_Drawing_Size = New-Object System.Drawing.Size
-$System_Drawing_Size.Height = 20
-$System_Drawing_Size.Width = 135
-$pwdfile.Size = $System_Drawing_Size
-$pwdfile.TabIndex = 14
+#$pwdfile.DataBindings.DefaultDataSourceUpdateMode = 0
+#$System_Drawing_Point = New-Object System.Drawing.Point
+#$System_Drawing_Point.X = 168
+#$System_Drawing_Point.Y = 245
+#$pwdfile.Location = $System_Drawing_Point
+#$pwdfile.Name = "pwdfile"
+#$System_Drawing_Size = New-Object System.Drawing.Size
+#$System_Drawing_Size.Height = 20
+#$System_Drawing_Size.Width = 135
+#$pwdfile.Size = $System_Drawing_Size
+#$pwdfile.TabIndex = 14
 
-$form1.Controls.Add($pwdfile)
+#$form1.Controls.Add($pwdfile)
 
-$label9.DataBindings.DefaultDataSourceUpdateMode = 0
+#$label9.DataBindings.DefaultDataSourceUpdateMode = 0
 
-$System_Drawing_Point = New-Object System.Drawing.Point
-$System_Drawing_Point.X = 12
-$System_Drawing_Point.Y = 245
-$label9.Location = $System_Drawing_Point
-$label9.Name = "label9"
-$System_Drawing_Size = New-Object System.Drawing.Size
-$System_Drawing_Size.Height = 23
-$System_Drawing_Size.Width = 149
-$label9.Size = $System_Drawing_Size
-$label9.TabIndex = 13
-$label9.Text = "Passwd list to be exported"
-$label9.add_Click($handler_label9_Click)
+#$System_Drawing_Point = New-Object System.Drawing.Point
+#$System_Drawing_Point.X = 12
+#$System_Drawing_Point.Y = 245
+#$label9.Location = $System_Drawing_Point
+#$label9.Name = "label9"
+#$System_Drawing_Size = New-Object System.Drawing.Size
+#$System_Drawing_Size.Height = 23
+#$System_Drawing_Size.Width = 149
+#$label9.Size = $System_Drawing_Size
+#$label9.TabIndex = 13
+#$label9.Text = "Passwd list to be exported"
+##$label9.add_Click($handler_label9_Click)
 
-$form1.Controls.Add($label9)
+#$form1.Controls.Add($label9)
 
 $log.DataBindings.DefaultDataSourceUpdateMode = 0
 $System_Drawing_Point = New-Object System.Drawing.Point
