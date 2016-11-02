@@ -21,8 +21,6 @@ function importusers ($file) {
 }
 
 
-
-
 #Generated Form Function
 function GenerateForm {
 ########################################################################
@@ -98,18 +96,22 @@ $run_OnClick=
         cd AD:
         log "INFO: Connection to Server could be etablished!"
         try {
-
+            $x = 0
             $xml.users.user | % {
                 try {
-                    write-host $_.name $_.pw
-                    $pw = ConvertTo-SecureString -String $_.pw -AsPlainText -Force
-                    New-ADUser -Name $_.name -SamAccountName $_.name -Path "ou=users,ou=meeting,dc=sam,dc=local" -Title "autocreateduser" -AccountExpirationDate $dateTimePicker1.Value -AccountPassword $pw -enabled $true
-                } catch [Exception] { write-host $_.Exception.Message }
+                    $passw = ConvertTo-SecureString -String $_.pw -AsPlainText -Force
+                    New-ADUser -Name $_.name -SamAccountName $_.name -Path "ou=users,ou=meeting,dc=sam,dc=local" -Title "autocreateduser" -AccountExpirationDate $dateTimePicker1.Value -AccountPassword $passw -enabled $true
+                    $x++
+                } catch [Exception] {
+                    log $_.Exception.Message
+                    log "ERROR: It could also be a bad xml (for example if a username/password is missing!)"
+                }
             }
-            log "INFO: Created Users"
+            log ("INFO: Created " + $x + " Users")
         } catch [Exception] {
             log "ERROR: The users couldn't be Created properly! It could be that the Security Settings for Passwords are too strong, to disable complexity checks, follow this page:
     https://www.interactivewebs.com/blog/index.php/server-tips/windows-2012-turn-off-password-complexity/"
+
             log $_.Exception.Message
         }
     } catch {
