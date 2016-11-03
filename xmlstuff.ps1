@@ -5,14 +5,13 @@ function createpw {
     $pw
 }
 
+$file = "C:\Temp\users.xml"
 
-
-function import {
+function import ($file){
     $numbers = 1..250
 
-    [xml]$xml = Get-Content C:\Temp\users.xml
+    [xml]$xml = Get-Content $file
     $xml.users.user
-
         foreach ($number in $numbers){
 
             createpw
@@ -22,11 +21,6 @@ function import {
 
             $new_user.SetAttribute("name", "user$($number)")
             $new_user.SetAttribute("Pw", $global:pw)
-
-        
-            
-
-
         }
     $xml.Save("C:\Temp\users.xml")
 }

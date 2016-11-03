@@ -2,21 +2,107 @@
 # ERROR: Something went wrong
 # INFO: Something happened
 function log ($text) {
-    $text = (get-date).ToShortTimeString() + " - " + $text
-    Add-Content $log.Text $text
+    try {
+        # Add time to beginning of line
+        $text = (get-date).ToShortTimeString() + " - " + $text
+        # Add content to logfile
+        Add-Content $log.Text $text
+    } catch {
+        # If no log file available, write to console
+        write-host $text
+    }
 }
 
-#function dialog($msg){
-#$wshell = New-Object -ComObject Wscript.Shell
-#return $wshell.Popup($msg,0,"warning",0x1)
-#}
-
-# import the xmlfile with the user names
-function importusers ($file) {
+# import the xmlfile with the user names, if it is available
+function import ($file) {
+    log "INFO: Importing users"
     try{
-        return [xml]$xml = Get-Content test.xml
+        return [xml]$xml = Get-Content $file
     } catch {
         log "EROR: File couldn't be imported"
+    }
+}
+
+# Connect to the Active Directory Server
+function connect {
+    log "INFO: Connecting to Active Directory"
+    try{
+        import-module activedirectory
+        log "INFO: Imported ActiveDirectory Module"
+        
+    } catch {
+    log "ERROR: ActiveDirectory-Module missing, try installing and enabling the RSAT-Tools!"
+    }
+    
+    # Get the credentials to log in to AD
+    $cred = Get-Credential
+    
+    try {
+        # "Mount" Active Directory on cd into it
+        new-psdrive -Name AD -psprovider ActiveDirectory -Root "" -Server $server.Text -Cred $cred
+        cd AD:
+        log ("INFO: Connection could be etablished to " + $server.Text)
+    } catch {
+        log ("ERROR: Connection be etablished to Server " + $server.Text)
+    }           
+}
+
+# Disconnect from Active Directory
+function disconnect {
+    log "INFO: Disconnecting from Active Directory"
+    try {    
+        cd C:
+        Remove-PSDrive AD
+        log "INFO: Disconnected Active Directory"
+    } catch {
+        log "ERROR: Couldn't disconnect for some Reason. Maybe this is because there is no drive 'C:/' or it didn't even connect.."
+    }
+}
+
+# Create Users
+function create ($xml) {
+   log "INFO: Start creation of Users"
+    # Try to import the activedirectory Modul
+    try {
+        $usercount = 0
+        $xml.users.user | % {
+            try {
+                # Create a secure password
+                $passw = ConvertTo-SecureString -String $_.pw -AsPlainText -Force
+                # Actually add the User
+                New-ADUser -Name $_.name -SamAccountName $_.name `
+                    -Path $dn.Text `
+                    -Title "autocreateduser" `
+                    -AccountExpirationDate $dateTimePicker1.Value `
+                    -AccountPassword $passw `
+                    -enabled $true
+                # Count the created users
+                $usercount++
+            } catch [Exception] {
+                # Log the Exception Message if something goes wrong! (There are various different reasons for it to not work)
+                log $_.Exception.Message
+                log "ERROR: Couldn't create user. It could be a bad xml (for example if a username/password is missing!), permission problems or maybe the user already exists"
+            }
+        }
+        
+        log ("INFO: Created " + $usercount + " Users")
+    } catch [Exception] {
+        # It often happens that the passwords don't meet security settings. That's why a hint is given here
+        log "ERROR: The users couldn't be Created properly! It could be that the Security Settings for Passwords are too strong, to disable complexity checks, follow this page:
+https://www.interactivewebs.com/blog/index.php/server-tips/windows-2012-turn-off-password-complexity/"
+        log $_.Exception.Message
+    }
+}
+
+# Remove Users
+function remove {
+    log "INFO: Removing users"
+    try {
+        Get-ADUser -Filter {title -eq "autocreateduser"} `
+        -SearchBase $dn.Text | Remove-ADUser -Confirm:$false
+        log "INFO: Removed users"
+    } catch {
+        log "ERROR: Couldn't remove users! Check if permissions are set properly"
     }
 }
 
@@ -76,54 +162,13 @@ $log_button_OnClick=
 
 $run_OnClick= 
 {
-#TODO: Place custom script here
-    log "INFO: Start creation of Users"
-    
-
-    try {
-    import-module activedirectory
-    log "INFO: Imported ActiveDirectory Module"
-    } catch {
-    log "ERROR: ActiveDirectory-Module missing, try installing and enabling the RSAT-Tools!"
-    } 
-    try {
-        $xml = importusers($userlist.text)
-        #$pwd = ConvertTo-SecureString -String 'Admin123' -AsPlainText -force
-        #$cred = New-Object -TypeName System.Management.Automation.PSCredential ('SAM\Administrator', $pwd)
-        $cred = Get-Credential
-        #$root = "ou=users,ou=meeting,dc=sam,dc=local"
-        new-psdrive -Name AD -psprovider ActiveDirectory -Root "" -Server $server.Text -Cred $cred
-        cd AD:
-        log "INFO: Connection to Server could be etablished!"
-        try {
-            $x = 0
-            $xml.users.user | % {
-                try {
-                    $passw = ConvertTo-SecureString -String $_.pw -AsPlainText -Force
-                    New-ADUser -Name $_.name -SamAccountName $_.name -Path "ou=users,ou=meeting,dc=sam,dc=local" -Title "autocreateduser" -AccountExpirationDate $dateTimePicker1.Value -AccountPassword $passw -enabled $true
-                    $x++
-                } catch [Exception] {
-                    log $_.Exception.Message
-                    log "ERROR: It could also be a bad xml (for example if a username/password is missing!)"
-                }
-            }
-            log ("INFO: Created " + $x + " Users")
-        } catch [Exception] {
-            log "ERROR: The users couldn't be Created properly! It could be that the Security Settings for Passwords are too strong, to disable complexity checks, follow this page:
-    https://www.interactivewebs.com/blog/index.php/server-tips/windows-2012-turn-off-password-complexity/"
-
-            log $_.Exception.Message
-        }
-    } catch {
-        log "ERROR: Couldn't connect to Active Directory. Check the credentials and the Server address please"
-    }
-    try {    
-        cd C:
-        Remove-PSDrive AD
-        log "INFO: Disconnected ActiveDirectory"
-    } catch {
-        log "ERROR: Couldn't disconnect for some Reason. Maybe this is because there is no drice 'C:"
-    }      
+    log ""
+    log "INFO: Started User Creation"
+    # Try to create the Users
+    $xml = import($userlist.text)
+    connect
+    create $xml
+    disconnect
 }
 
 $handler_form1_Load= 
@@ -145,9 +190,10 @@ $userlist_button_OnClick=
 
 $rem_OnClick= 
 {
-#TODO: Place custom script here
-    Write-Host $dateTimePicker1.Value
     log "INFO: Start removing Users"
+    connect
+    remove
+    disconnect
 }
 
 $handler_label9_Click= 
@@ -212,26 +258,6 @@ $dateTimePicker1.TabIndex = 19
 
 $form1.Controls.Add($dateTimePicker1)
 
-
-#$pwdfile_button.DataBindings.DefaultDataSourceUpdateMode = 0
-
-#$System_Drawing_Point = New-Object System.Drawing.Point
-#$System_Drawing_Point.X = 310
-#$System_Drawing_Point.Y = 245
-#$pwdfile_button.Location = $System_Drawing_Point
-#$pwdfile_button.Name = "pwdfile_button"
-#$System_Drawing_Size = New-Object System.Drawing.Size
-#$System_Drawing_Size.Height = 23
-#$System_Drawing_Size.Width = 126
-#$pwdfile_button.Size = $System_Drawing_Size
-#$pwdfile_button.TabIndex = 18
-#$pwdfile_button.Text = "open..."
-#$pwdfile_button.UseVisualStyleBackColor = $True
-#$pwdfile_button.add_Click($pwdfile_button_OnClick)
-
-#$form1.Controls.Add($pwdfile_button)
-
-
 $log_button.DataBindings.DefaultDataSourceUpdateMode = 0
 
 $System_Drawing_Point = New-Object System.Drawing.Point
@@ -287,37 +313,6 @@ $run.UseVisualStyleBackColor = $True
 $run.add_Click($run_OnClick)
 
 $form1.Controls.Add($run)
-
-#$pwdfile.DataBindings.DefaultDataSourceUpdateMode = 0
-#$System_Drawing_Point = New-Object System.Drawing.Point
-#$System_Drawing_Point.X = 168
-#$System_Drawing_Point.Y = 245
-#$pwdfile.Location = $System_Drawing_Point
-#$pwdfile.Name = "pwdfile"
-#$System_Drawing_Size = New-Object System.Drawing.Size
-#$System_Drawing_Size.Height = 20
-#$System_Drawing_Size.Width = 135
-#$pwdfile.Size = $System_Drawing_Size
-#$pwdfile.TabIndex = 14
-
-#$form1.Controls.Add($pwdfile)
-
-#$label9.DataBindings.DefaultDataSourceUpdateMode = 0
-
-#$System_Drawing_Point = New-Object System.Drawing.Point
-#$System_Drawing_Point.X = 12
-#$System_Drawing_Point.Y = 245
-#$label9.Location = $System_Drawing_Point
-#$label9.Name = "label9"
-#$System_Drawing_Size = New-Object System.Drawing.Size
-#$System_Drawing_Size.Height = 23
-#$System_Drawing_Size.Width = 149
-#$label9.Size = $System_Drawing_Size
-#$label9.TabIndex = 13
-#$label9.Text = "Passwd list to be exported"
-##$label9.add_Click($handler_label9_Click)
-
-#$form1.Controls.Add($label9)
 
 $log.DataBindings.DefaultDataSourceUpdateMode = 0
 $System_Drawing_Point = New-Object System.Drawing.Point
